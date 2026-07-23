@@ -1,0 +1,321 @@
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>STARCHASER</title>
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: black;
+      }
+
+      canvas {
+        display: block;
+      }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+  </head>
+
+  <body>
+    <script>
+      let img;
+      let starX;
+      let starY;
+
+      let popup = "";
+      let scene = "game";
+
+      function preload() {
+        img = loadImage("./assets/Redstar.png");
+      }
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+
+        starX = width / 2 - 25;
+        starY = height / 2 - 25;
+
+        textFont("Courier New");
+      }
+
+      function draw() {
+        if (scene === "game") {
+          drawGame();
+        }
+
+        if (scene === "giveUpScene") {
+          drawGiveUpScene();
+        }
+      }
+
+      function drawGame() {
+        background(2);
+
+        if (
+          popup === "" &&
+          dist(mouseX, mouseY, starX + 25, starY + 25) < 60
+        ) {
+          starX = random(25, width - 75);
+          starY = random(25, height - 75);
+        }
+
+        image(img, starX, starY, 80, 80);
+
+        noStroke();
+        fill("white");
+        circle(starX + 40, starY + 40, 5);
+
+        let mouseRed = map(mouseX, 0, width, 0, 255);
+        let mouseGreen = map(mouseY, 0, height, 255, 0);
+        let mouseBlue = map(
+          mouseX + mouseY,
+          0,
+          width + height,
+          80,
+          255
+        );
+
+        fill(mouseRed, mouseGreen, mouseBlue);
+        circle(mouseX, mouseY, 15);
+
+        drawMainButtons();
+
+        if (popup === "hint") {
+          drawHintPopup();
+        }
+
+        if (popup === "giveUp") {
+          drawGiveUpPopup();
+        }
+      }
+
+      function drawGiveUpScene() {
+    // dark red gradient background (like your intro style)
+    let topColor = color(30, 0, 0);
+    let bottomColor = color(90, 0, 0);
+
+    for (let y = 0; y < height; y++) {
+        let amt = map(y, 0, height, 0, 1);
+        stroke(lerpColor(topColor, bottomColor, amt));
+        line(0, y, width, y);
+    }
+
+    noStroke();
+
+    // subtitle (corrupted tone)
+    textSize(20);
+    textStyle(NORMAL);
+    fill(255, 100, 100);
+    textAlign(CENTER, CENTER);
+
+    text(
+        "\nYou gave up\n\nOR\n\nDid you simply realize the truth?",
+        width / 2,
+        height / 2
+    );
+
+    // subtle mouse glow (red instead of blue)
+    let r = map(mouseX, 0, width, 120, 255);
+    let g = map(mouseY, 0, height, 0, 40);
+    let b = 0;
+
+    fill(r, g, b, 180);
+    noStroke();
+    circle(mouseX, mouseY, 15);
+    }
+
+      function drawMainButtons() {
+        drawButton(
+          width - 135,
+          height - 110,
+          110,
+          35,
+          "Hint"
+        );
+
+        drawButton(
+          width - 135,
+          height - 60,
+          110,
+          35,
+          "Give Up"
+        );
+      }
+
+      function drawButton(x, y, w, h, label) {
+        if (insideButton(x, y, w, h)) {
+          fill(60);
+          stroke("magenta");
+        } else {
+          fill(20);
+          stroke("lightblue");
+        }
+
+        strokeWeight(1);
+        rect(x, y, w, h);
+
+        noStroke();
+        fill("lightblue");
+        textSize(14);
+        textAlign(CENTER, CENTER);
+        text(label, x + w / 2, y + h / 2);
+      }
+
+      function drawPopupBox() {
+        noStroke();
+        fill(0, 190);
+        rect(0, 0, width, height);
+
+        rectMode(CENTER);
+        fill(20);
+        stroke("lightblue");
+        strokeWeight(2);
+        rect(width / 2, height / 2, 520, 300, 10);
+        rectMode(CORNER);
+      }
+
+      function drawHintPopup() {
+        drawPopupBox();
+
+        noStroke();
+        fill("white");
+        textAlign(CENTER, CENTER);
+        textSize(18);
+
+        text(
+          "Hint:\n\nThink outside the box.",
+          width / 2,
+          height / 2 - 45
+        );
+
+        drawButton(
+          width / 2 - 70,
+          height / 2 + 75,
+          140,
+          40,
+          "Coninue"
+        );
+      }
+
+      function drawGiveUpPopup() {
+        drawPopupBox();
+
+        noStroke();
+        fill("white");
+        textAlign(CENTER, CENTER);
+        textSize(18);
+
+        text(
+          "Are you sure?\n\nYou can still do this!\nIt's not too late to save the universe.",
+          width / 2,
+          height / 2 - 50
+        );
+
+        drawButton(
+          width / 2 - 165,
+          height / 2 + 75,
+          150,
+          40,
+          "Keep Trying :)"
+        );
+
+        drawButton(
+          width / 2 + 15,
+          height / 2 + 75,
+          150,
+          40,
+          "Give Up :("
+        );
+      }
+
+      function insideButton(x, y, w, h) {
+        return (
+          mouseX >= x &&
+          mouseX <= x + w &&
+          mouseY >= y &&
+          mouseY <= y + h
+        );
+      }
+
+      function mousePressed() {
+        if (scene !== "game") {
+          return;
+        }
+
+        if (popup === "") {
+          if (
+            insideButton(
+              width - 135,
+              height - 110,
+              110,
+              35
+            )
+          ) {
+            popup = "hint";
+          } else if (
+            insideButton(
+              width - 135,
+              height - 60,
+              110,
+              35
+            )
+          ) {
+            popup = "giveUp";
+          }
+
+          return;
+        }
+
+        if (
+          popup === "hint" &&
+          insideButton(
+            width / 2 - 70,
+            height / 2 + 75,
+            140,
+            40
+          )
+        ) {
+          popup = "";
+          return;
+        }
+
+        if (
+          popup === "giveUp" &&
+          insideButton(
+            width / 2 - 165,
+            height / 2 + 75,
+            150,
+            40
+          )
+        ) {
+          popup = "";
+          return;
+        }
+
+        if (
+          popup === "giveUp" &&
+          insideButton(
+            width / 2 + 15,
+            height / 2 + 75,
+            150,
+            40
+          )
+        ) {
+          popup = "";
+          scene = "giveUpScene";
+        }
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+      }
+    </script>
+  </body>
+</html>
+```
