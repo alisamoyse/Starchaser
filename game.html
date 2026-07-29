@@ -1,17 +1,24 @@
-```html
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, user-scalable=no"
+    />
 
     <title>STARCHASER</title>
 
     <style>
+      html,
       body {
         margin: 0;
+        width: 100%;
+        height: 100%;
         overflow: hidden;
         background: black;
+        touch-action: none;
       }
 
       canvas {
@@ -25,11 +32,62 @@
   <body>
     <script>
       let img;
+
       let starX;
       let starY;
 
-      let popup = "";
-      let scene = "game";
+      let playerX;
+      let playerY;
+
+      const borderOrder = [
+        "top",
+        "right",
+        "bottom",
+        "left"
+      ];
+
+      let gameState = {
+        scene: "game",
+        popup: "",
+
+        attempts: 0,
+        hintsUsed: 0,
+
+        zoomPresses: 0,
+        zoomedOut: false,
+
+        currentBorder: "top",
+        challengesCompleted: 0,
+        allBordersUnlocked: false,
+
+        challenges: {
+          top: false,
+          right: false,
+          bottom: false,
+          left: false
+        },
+
+        gaveUp: false
+      };
+
+      // Galaga challenge variables
+      let challengeSide = "";
+
+      let shipX;
+      let shipY;
+
+      let enemyX;
+      let enemyY;
+      let enemyDirection = 1;
+
+      let playerBullets = [];
+      let enemyBullets = [];
+
+      let playerHealth = 3;
+      let enemyHealth = 8;
+
+      let lastPlayerShot = 0;
+      let lastEnemyShot = 0;
 
       function preload() {
         img = loadImage("./assets/Redstar.png");
@@ -38,31 +96,47 @@
       function setup() {
         createCanvas(windowWidth, windowHeight);
 
-        starX = width / 2 - 25;
-        starY = height / 2 - 25;
-
         textFont("Courier New");
+        noCursor();
+
+        playerX = width / 2;
+        playerY = height / 2;
+
+        moveStarInsideRoom();
       }
 
       function draw() {
-        if (scene === "game") {
+        if (gameState.scene === "game") {
           drawGame();
         }
 
-        if (scene === "giveUpScene") {
+        if (gameState.scene === "challenge") {
+          drawChallenge();
+        }
+
+        if (gameState.scene === "giveUpScene") {
           drawGiveUpScene();
         }
       }
 
+      // =====================================================
+      // MAIN GAME
+      // =====================================================
+
       function drawGame() {
-        background(2);
+        updatePlayer();
+        drawWorld();
 
         if (
-          popup === "" &&
-          dist(mouseX, mouseY, starX + 25, starY + 25) < 60
+          gameState.popup === "" &&
+          dist(
+            playerX,
+            playerY,
+            starX + 40,
+            starY + 40
+          ) < 60
         ) {
-          starX = random(25, width - 75);
-          starY = random(25, height - 75);
+          handleStarApproach();
         }
 
         image(img, starX, starY, 80, 80);
@@ -71,79 +145,604 @@
         fill("white");
         circle(starX + 40, starY + 40, 5);
 
-        let mouseRed = map(mouseX, 0, width, 0, 255);
-        let mouseGreen = map(mouseY, 0, height, 255, 0);
-        let mouseBlue = map(
-          mouseX + mouseY,
+        drawPlayer();
+        drawGameInformation();
+        drawMainButtons();
+
+        if (gameState.popup === "hint") {
+          drawHintPopup();
+        }
+
+        if (gameState.popup === "giveUp") {
+          drawGiveUpPopup();
+        }
+      }
+
+      function drawWorld() {
+        background(7, 10, 18);
+
+        if (!gameState.zoomedOut) {
+          noStroke();
+          fill(2);
+          rect(0, 0, width, height);
+          return;
+        }
+
+        let room = getInnerRoom();
+
+        // Outer area
+        noStroke();
+        fill(10, 17, 28);
+        rect(0, 0, width, height);
+
+        // Inner room
+        fill(2);
+
+        rect(
+          room.left,
+          room.top,
+          room.right - room.left,
+          room.bottom - room.top
+        );
+
+        // Inner walls
+        noFill();
+        stroke("lightblue");
+        strokeWeight(3);
+
+        rect(
+          room.left,
+          room.top,
+          room.right - room.left,
+          room.bottom - room.top
+        );
+
+        drawGate("top");
+        drawGate("right");
+        drawGate("bottom");
+        drawGate("left");
+      }
+
+      function getInnerRoom() {
+        let horizontalMargin = max(
+          85,
+          width * 0.18
+        );
+
+        let verticalMargin = max(
+          100,
+          height * 0.18
+        );
+
+        if (width < 600) {
+          horizontalMargin = width * 0.16;
+          verticalMargin = height * 0.18;
+        }
+
+        return {
+          left: horizontalMargin,
+          right: width - horizontalMargin,
+          top: verticalMargin,
+          bottom: height - verticalMargin
+        };
+      }
+
+      function drawGate(side) {
+        let gate = getGateRect(side);
+
+        let completed =
+          gameState.challenges[side];
+
+        let active =
+          side === gameState.currentBorder &&
+          !gameState.allBordersUnlocked;
+
+        if (completed) {
+          fill(40, 150, 100);
+          stroke(100, 255, 170);
+        } else if (active) {
+          fill(90, 20, 30);
+          stroke(255, 80, 110);
+        } else {
+          fill(35);
+          stroke(100);
+        }
+
+        strokeWeight(2);
+
+        rect(
+          gate.x,
+          gate.y,
+          gate.w,
+          gate.h,
+          5
+        );
+
+        noStroke();
+        textAlign(CENTER, CENTER);
+        textSize(width < 600 ? 9 : 12);
+
+        if (completed) {
+          fill(150, 255, 190);
+          text(
+            "OPEN",
+            gate.x + gate.w / 2,
+            gate.y + gate.h / 2
+          );
+        } else if (active) {
+          fill(255, 130, 150);
+          text(
+            "FIGHT",
+            gate.x + gate.w / 2,
+            gate.y + gate.h / 2
+          );
+        } else {
+          fill(130);
+          text(
+            "LOCKED",
+            gate.x + gate.w / 2,
+            gate.y + gate.h / 2
+          );
+        }
+      }
+
+      function getGateRect(side) {
+        let room = getInnerRoom();
+
+        let horizontalGateWidth = min(
+          100,
+          width * 0.25
+        );
+
+        let verticalGateHeight = min(
+          100,
+          height * 0.2
+        );
+
+        let thickness = 34;
+
+        if (side === "top") {
+          return {
+            x:
+              width / 2 -
+              horizontalGateWidth / 2,
+
+            y:
+              room.top -
+              thickness / 2,
+
+            w: horizontalGateWidth,
+            h: thickness
+          };
+        }
+
+        if (side === "bottom") {
+          return {
+            x:
+              width / 2 -
+              horizontalGateWidth / 2,
+
+            y:
+              room.bottom -
+              thickness / 2,
+
+            w: horizontalGateWidth,
+            h: thickness
+          };
+        }
+
+        if (side === "left") {
+          return {
+            x:
+              room.left -
+              thickness / 2,
+
+            y:
+              height / 2 -
+              verticalGateHeight / 2,
+
+            w: thickness,
+            h: verticalGateHeight
+          };
+        }
+
+        return {
+          x:
+            room.right -
+            thickness / 2,
+
+          y:
+            height / 2 -
+            verticalGateHeight / 2,
+
+          w: thickness,
+          h: verticalGateHeight
+        };
+      }
+
+      function handleStarApproach() {
+        gameState.attempts++;
+
+        // Before zooming out, the star keeps jumping
+        // around the normal screen.
+        if (!gameState.zoomedOut) {
+          moveStarInsideRoom();
+          return;
+        }
+
+        // After all four borders are unlocked,
+        // the star returns to the center and keeps
+        // escaping forever.
+        if (gameState.allBordersUnlocked) {
+          moveStarInsideRoom();
+          return;
+        }
+
+        let currentSide =
+          gameState.currentBorder;
+
+        // The player can only reach the star after
+        // completing the current border challenge.
+        if (gameState.challenges[currentSide]) {
+          let nextBorderIndex =
+            gameState.challengesCompleted;
+
+          if (nextBorderIndex < 4) {
+            gameState.currentBorder =
+              borderOrder[nextBorderIndex];
+
+            playerX = width / 2;
+            playerY = height / 2;
+
+            moveStarToOuterBorder(
+              gameState.currentBorder
+            );
+          }
+        }
+      }
+
+      function moveStarInsideRoom() {
+        if (!gameState.zoomedOut) {
+          starX = random(
+            40,
+            max(41, width - 120)
+          );
+
+          starY = random(
+            40,
+            max(41, height - 120)
+          );
+
+          return;
+        }
+
+        let room = getInnerRoom();
+
+        starX = random(
+          room.left + 25,
+          max(
+            room.left + 26,
+            room.right - 105
+          )
+        );
+
+        starY = random(
+          room.top + 25,
+          max(
+            room.top + 26,
+            room.bottom - 105
+          )
+        );
+      }
+
+      function moveStarToOuterBorder(side) {
+        let room = getInnerRoom();
+
+        let starSize = 80;
+        let padding = 15;
+
+        if (side === "top") {
+          starX = random(
+            padding,
+            max(
+              padding + 1,
+              width - starSize - padding
+            )
+          );
+
+          starY = random(
+            padding,
+            max(
+              padding + 1,
+              room.top - starSize - padding
+            )
+          );
+        }
+
+        if (side === "right") {
+          starX = random(
+            room.right + padding,
+            max(
+              room.right + padding + 1,
+              width - starSize - padding
+            )
+          );
+
+          starY = random(
+            padding,
+            max(
+              padding + 1,
+              height - starSize - padding
+            )
+          );
+        }
+
+        if (side === "bottom") {
+          starX = random(
+            padding,
+            max(
+              padding + 1,
+              width - starSize - padding
+            )
+          );
+
+          starY = random(
+            room.bottom + padding,
+            max(
+              room.bottom + padding + 1,
+              height - starSize - padding
+            )
+          );
+        }
+
+        if (side === "left") {
+          starX = random(
+            padding,
+            max(
+              padding + 1,
+              room.left - starSize - padding
+            )
+          );
+
+          starY = random(
+            padding,
+            max(
+              padding + 1,
+              height - starSize - padding
+            )
+          );
+        }
+      }
+
+      // =====================================================
+      // PLAYER AND WALLS
+      // =====================================================
+
+      function updatePlayer() {
+        if (gameState.popup !== "") {
+          return;
+        }
+
+        let targetX = mouseX;
+        let targetY = mouseY;
+
+        if (touches.length > 0) {
+          targetX = touches[0].x;
+          targetY = touches[0].y;
+        }
+
+        if (!gameState.zoomedOut) {
+          playerX = constrain(
+            targetX,
+            8,
+            width - 8
+          );
+
+          playerY = constrain(
+            targetY,
+            8,
+            height - 8
+          );
+
+          return;
+        }
+
+        let room = getInnerRoom();
+
+        let outsideSide = getOuterSide(
+          targetX,
+          targetY,
+          room
+        );
+
+        // Inside the room
+        if (outsideSide === "") {
+          playerX = targetX;
+          playerY = targetY;
+          return;
+        }
+
+        // The player may enter an outer area only
+        // after that border's challenge is complete.
+        if (
+          gameState.challenges[outsideSide]
+        ) {
+          playerX = constrain(
+            targetX,
+            8,
+            width - 8
+          );
+
+          playerY = constrain(
+            targetY,
+            8,
+            height - 8
+          );
+
+          return;
+        }
+
+        // Locked border: keep visible player
+        // inside the inner room.
+        playerX = constrain(
+          targetX,
+          room.left + 8,
+          room.right - 8
+        );
+
+        playerY = constrain(
+          targetY,
+          room.top + 8,
+          room.bottom - 8
+        );
+      }
+
+      function getOuterSide(x, y, room) {
+        let leftDistance =
+          room.left - x;
+
+        let rightDistance =
+          x - room.right;
+
+        let topDistance =
+          room.top - y;
+
+        let bottomDistance =
+          y - room.bottom;
+
+        let largestDistance = 0;
+        let side = "";
+
+        if (topDistance > largestDistance) {
+          largestDistance = topDistance;
+          side = "top";
+        }
+
+        if (rightDistance > largestDistance) {
+          largestDistance = rightDistance;
+          side = "right";
+        }
+
+        if (bottomDistance > largestDistance) {
+          largestDistance = bottomDistance;
+          side = "bottom";
+        }
+
+        if (leftDistance > largestDistance) {
+          side = "left";
+        }
+
+        return side;
+      }
+
+      function drawPlayer() {
+        let playerRed = map(
+          playerX,
+          0,
+          width,
+          0,
+          255
+        );
+
+        let playerGreen = map(
+          playerY,
+          0,
+          height,
+          255,
+          0
+        );
+
+        let playerBlue = map(
+          playerX + playerY,
           0,
           width + height,
           80,
           255
         );
 
-        fill(mouseRed, mouseGreen, mouseBlue);
-        circle(mouseX, mouseY, 15);
+        noStroke();
 
-        drawMainButtons();
+        fill(
+          playerRed,
+          playerGreen,
+          playerBlue
+        );
 
-        if (popup === "hint") {
-          drawHintPopup();
-        }
+        circle(playerX, playerY, 15);
+      }
 
-        if (popup === "giveUp") {
-          drawGiveUpPopup();
+      // =====================================================
+      // ATTEMPTS AND MINUS BUTTON
+      // =====================================================
+
+      function drawGameInformation() {
+        noStroke();
+        fill("lightblue");
+
+        textAlign(LEFT, CENTER);
+        textSize(14);
+
+        text(
+          "Attempts: " +
+            gameState.attempts,
+          20,
+          28
+        );
+
+        // Minus zoom button appears from
+        // the very beginning.
+        drawButton(
+          130,
+          10,
+          40,
+          36,
+          "-"
+        );
+
+
+        if (gameState.zoomedOut) {
+          fill("lightblue");
+          noStroke();
+
+          textAlign(LEFT, TOP);
+          textSize(14);
+
+          text(
+            "Borders defeated: " +
+              gameState.challengesCompleted +
+              " / 4",
+            20,
+            50
+          );
         }
       }
 
-      function drawGiveUpScene() {
-    // dark red gradient background (like your intro style)
-    let topColor = color(30, 0, 0);
-    let bottomColor = color(90, 0, 0);
-
-    for (let y = 0; y < height; y++) {
-        let amt = map(y, 0, height, 0, 1);
-        stroke(lerpColor(topColor, bottomColor, amt));
-        line(0, y, width, y);
-    }
-
-    noStroke();
-
-    // subtitle (corrupted tone)
-    textSize(20);
-    textStyle(NORMAL);
-    fill(255, 100, 100);
-    textAlign(CENTER, CENTER);
-
-    text(
-        "\nYou gave up\n\nOR\n\nDid you simply realize the truth?",
-        width / 2,
-        height / 2
-    );
-
-    // subtle mouse glow (red instead of blue)
-    let r = map(mouseX, 0, width, 120, 255);
-    let g = map(mouseY, 0, height, 0, 40);
-    let b = 0;
-
-    fill(r, g, b, 180);
-    noStroke();
-    circle(mouseX, mouseY, 15);
-    }
+      // =====================================================
+      // MAIN BUTTONS AND POPUPS
+      // =====================================================
 
       function drawMainButtons() {
+        let buttonWidth = 115;
+        let buttonHeight = 38;
+
+        let x =
+          width -
+          buttonWidth -
+          20;
+
         drawButton(
-          width - 135,
+          x,
           height - 110,
-          110,
-          35,
+          buttonWidth,
+          buttonHeight,
           "Hint"
         );
 
         drawButton(
-          width - 135,
+          x,
           height - 60,
-          110,
-          35,
+          buttonWidth,
+          buttonHeight,
           "Give Up"
         );
       }
@@ -158,25 +757,57 @@
         }
 
         strokeWeight(1);
-        rect(x, y, w, h);
+
+        rect(
+          x,
+          y,
+          w,
+          h,
+          4
+        );
 
         noStroke();
         fill("lightblue");
+
         textSize(14);
         textAlign(CENTER, CENTER);
-        text(label, x + w / 2, y + h / 2);
+
+        text(
+          label,
+          x + w / 2,
+          y + h / 2
+        );
       }
 
       function drawPopupBox() {
         noStroke();
-        fill(0, 190);
+        fill(0, 200);
         rect(0, 0, width, height);
 
+        let popupWidth = min(
+          520,
+          width - 30
+        );
+
+        let popupHeight = min(
+          300,
+          height - 80
+        );
+
         rectMode(CENTER);
+
         fill(20);
         stroke("lightblue");
         strokeWeight(2);
-        rect(width / 2, height / 2, 520, 300, 10);
+
+        rect(
+          width / 2,
+          height / 2,
+          popupWidth,
+          popupHeight,
+          10
+        );
+
         rectMode(CORNER);
       }
 
@@ -185,21 +816,37 @@
 
         noStroke();
         fill("white");
+
         textAlign(CENTER, CENTER);
-        textSize(18);
+        textSize(width < 600 ? 15 : 18);
+
+        let hintText;
+
+        if (!gameState.zoomedOut) {
+          hintText =
+            "Hint:\n\nThink outside the box.\nSometimes one step is not enough.";
+        } else if (
+          gameState.allBordersUnlocked
+        ) {
+          hintText =
+            "Hint:\n\nEvery border is open.\nBut the star still refuses to be caught.";
+        } else {
+          hintText =
+            "Hint:\n\nThe star is beyond the wall.\nDefeat the ship guarding that border.";
+        }
 
         text(
-          "Hint:\n\nThink outside the box.",
+          hintText,
           width / 2,
-          height / 2 - 45
+          height / 2 - 40
         );
 
         drawButton(
           width / 2 - 70,
           height / 2 + 75,
           140,
-          40,
-          "Coninue"
+          42,
+          "Continue"
         );
       }
 
@@ -208,8 +855,9 @@
 
         noStroke();
         fill("white");
+
         textAlign(CENTER, CENTER);
-        textSize(18);
+        textSize(width < 600 ? 15 : 18);
 
         text(
           "Are you sure?\n\nYou can still do this!\nIt's not too late to save the universe.",
@@ -217,19 +865,28 @@
           height / 2 - 50
         );
 
+        let buttonWidth =
+          width < 600
+            ? 130
+            : 150;
+
         drawButton(
-          width / 2 - 165,
+          width / 2 -
+            buttonWidth -
+            10,
+
           height / 2 + 75,
-          150,
-          40,
+
+          buttonWidth,
+          42,
           "Keep Trying :)"
         );
 
         drawButton(
-          width / 2 + 15,
+          width / 2 + 10,
           height / 2 + 75,
-          150,
-          40,
+          buttonWidth,
+          42,
           "Give Up :("
         );
       }
@@ -243,79 +900,962 @@
         );
       }
 
-      function mousePressed() {
-        if (scene !== "game") {
+      // =====================================================
+      // GALAGA CHALLENGE
+      // =====================================================
+
+      function startChallenge(side) {
+        challengeSide = side;
+
+        gameState.scene =
+          "challenge";
+
+        let arena =
+          getChallengeArena();
+
+        shipX =
+          arena.x +
+          arena.w / 2;
+
+        shipY =
+          arena.y +
+          arena.h -
+          55;
+
+        enemyX =
+          arena.x +
+          arena.w / 2;
+
+        enemyY =
+          arena.y + 65;
+
+        enemyDirection = 1;
+
+        playerBullets = [];
+        enemyBullets = [];
+
+        playerHealth = 3;
+
+        enemyHealth =
+          8 +
+          gameState.challengesCompleted *
+            3;
+
+        lastPlayerShot = frameCount;
+        lastEnemyShot = frameCount;
+      }
+
+      function exitChallenge() {
+        gameState.scene = "game";
+
+        challengeSide = "";
+
+        playerBullets = [];
+        enemyBullets = [];
+
+        playerX = width / 2;
+        playerY = height / 2;
+      }
+
+      function getChallengeArena() {
+        let arenaWidth = min(
+          width * 0.9,
+          700
+        );
+
+        let arenaHeight = min(
+          height * 0.68,
+          600
+        );
+
+        return {
+          x:
+            width / 2 -
+            arenaWidth / 2,
+
+          y: 65,
+
+          w: arenaWidth,
+          h: arenaHeight
+        };
+      }
+
+      function getChallengeExitButton() {
+        return {
+          x: width - 90,
+          y: 12,
+          w: 72,
+          h: 38
+        };
+      }
+
+      function drawChallenge() {
+        background(2);
+
+        let arena =
+          getChallengeArena();
+
+        let difficulty =
+          gameState.challengesCompleted;
+
+        drawChallengeHeader(arena);
+        drawChallengeExitButton();
+
+        noFill();
+        stroke("lightblue");
+        strokeWeight(2);
+
+        rect(
+          arena.x,
+          arena.y,
+          arena.w,
+          arena.h
+        );
+
+        updateChallengeControls(arena);
+
+        updateEnemy(
+          arena,
+          difficulty
+        );
+
+        updatePlayerBullets(arena);
+        updateEnemyBullets(arena);
+
+        drawChallengePlayer();
+        drawChallengeEnemy();
+        drawChallengeControls();
+
+        checkChallengeCollisions(arena);
+      }
+
+      function drawChallengeHeader(arena) {
+        noStroke();
+        fill("white");
+
+        textAlign(CENTER, CENTER);
+        textSize(width < 600 ? 12 : 18);
+
+        text(
+          challengeSide.toUpperCase() +
+            " BORDER GUARDIAN",
+          width / 2,
+          25
+        );
+
+        textSize(13);
+
+        text(
+          "Your health: " +
+            playerHealth +
+            "     Enemy health: " +
+            enemyHealth,
+          width / 2,
+          arena.y + 18
+        );
+      }
+
+      function drawChallengeExitButton() {
+        let exitButton =
+          getChallengeExitButton();
+
+        drawButton(
+          exitButton.x,
+          exitButton.y,
+          exitButton.w,
+          exitButton.h,
+          "EXIT"
+        );
+      }
+
+      function updateChallengeControls(arena) {
+        let movementSpeed =
+          5 +
+          gameState.challengesCompleted *
+            0.25;
+
+        if (
+          keyIsDown(LEFT_ARROW) ||
+          keyIsDown(65)
+        ) {
+          shipX -= movementSpeed;
+        }
+
+        if (
+          keyIsDown(RIGHT_ARROW) ||
+          keyIsDown(68)
+        ) {
+          shipX += movementSpeed;
+        }
+
+        if (keyIsDown(32)) {
+          shootPlayerBullet();
+        }
+
+        let controls =
+          getChallengeControlRects();
+
+        for (let touch of touches) {
+          if (
+            pointInsideRect(
+              touch.x,
+              touch.y,
+              controls.left
+            )
+          ) {
+            shipX -= movementSpeed;
+          }
+
+          if (
+            pointInsideRect(
+              touch.x,
+              touch.y,
+              controls.right
+            )
+          ) {
+            shipX += movementSpeed;
+          }
+
+          if (
+            pointInsideRect(
+              touch.x,
+              touch.y,
+              controls.fire
+            )
+          ) {
+            shootPlayerBullet();
+          }
+        }
+
+        shipX = constrain(
+          shipX,
+          arena.x + 20,
+          arena.x +
+            arena.w -
+            20
+        );
+      }
+
+      function updateEnemy(
+        arena,
+        difficulty
+      ) {
+        let enemySpeed =
+          2.2 +
+          difficulty * 0.65;
+
+        enemyX +=
+          enemySpeed *
+          enemyDirection;
+
+        if (
+          enemyX <
+            arena.x + 30 ||
+          enemyX >
+            arena.x +
+              arena.w -
+              30
+        ) {
+          enemyDirection *= -1;
+        }
+
+        let enemyShootDelay =
+          75 -
+          difficulty * 10;
+
+        enemyShootDelay = max(
+          35,
+          enemyShootDelay
+        );
+
+        if (
+          frameCount -
+            lastEnemyShot >
+          enemyShootDelay
+        ) {
+          enemyBullets.push({
+            x: enemyX,
+            y: enemyY + 20,
+            speed:
+              4.5 +
+              difficulty * 0.65
+          });
+
+          lastEnemyShot =
+            frameCount;
+        }
+      }
+
+      function shootPlayerBullet() {
+        if (
+          frameCount -
+            lastPlayerShot <
+          14
+        ) {
           return;
         }
 
-        if (popup === "") {
+        playerBullets.push({
+          x: shipX,
+          y: shipY - 20,
+          speed: 8
+        });
+
+        lastPlayerShot = frameCount;
+      }
+
+      function updatePlayerBullets(arena) {
+        for (
+          let i =
+            playerBullets.length - 1;
+
+          i >= 0;
+          i--
+        ) {
+          let bullet =
+            playerBullets[i];
+
+          bullet.y -= bullet.speed;
+
+          noStroke();
+          fill(100, 220, 255);
+
+          rect(
+            bullet.x - 2,
+            bullet.y - 8,
+            4,
+            12
+          );
+
+          if (bullet.y < arena.y) {
+            playerBullets.splice(i, 1);
+          }
+        }
+      }
+
+      function updateEnemyBullets(arena) {
+        for (
+          let i =
+            enemyBullets.length - 1;
+
+          i >= 0;
+          i--
+        ) {
+          let bullet =
+            enemyBullets[i];
+
+          bullet.y += bullet.speed;
+
+          noStroke();
+          fill(255, 70, 100);
+
+          circle(
+            bullet.x,
+            bullet.y,
+            9
+          );
+
           if (
-            insideButton(
-              width - 135,
-              height - 110,
-              110,
-              35
+            bullet.y >
+            arena.y + arena.h
+          ) {
+            enemyBullets.splice(i, 1);
+          }
+        }
+      }
+
+      function drawChallengePlayer() {
+        noStroke();
+        fill(100, 220, 255);
+
+        triangle(
+          shipX,
+          shipY - 22,
+
+          shipX - 20,
+          shipY + 18,
+
+          shipX + 20,
+          shipY + 18
+        );
+
+        fill("white");
+        circle(shipX, shipY, 6);
+      }
+
+      function drawChallengeEnemy() {
+        push();
+
+        translate(enemyX, enemyY);
+
+        noStroke();
+        fill(255, 65, 90);
+
+        triangle(
+          0,
+          22,
+          -25,
+          -15,
+          25,
+          -15
+        );
+
+        fill(150, 0, 20);
+        rect(-20, -13, 40, 10);
+
+        fill("white");
+        circle(0, 2, 6);
+
+        pop();
+      }
+
+      function checkChallengeCollisions(
+        arena
+      ) {
+        for (
+          let i =
+            playerBullets.length - 1;
+
+          i >= 0;
+          i--
+        ) {
+          let bullet =
+            playerBullets[i];
+
+          if (
+            dist(
+              bullet.x,
+              bullet.y,
+              enemyX,
+              enemyY
+            ) < 28
+          ) {
+            playerBullets.splice(i, 1);
+            enemyHealth--;
+
+            if (enemyHealth <= 0) {
+              completeChallenge();
+              return;
+            }
+          }
+        }
+
+        for (
+          let i =
+            enemyBullets.length - 1;
+
+          i >= 0;
+          i--
+        ) {
+          let bullet =
+            enemyBullets[i];
+
+          if (
+            dist(
+              bullet.x,
+              bullet.y,
+              shipX,
+              shipY
+            ) < 24
+          ) {
+            enemyBullets.splice(i, 1);
+            playerHealth--;
+
+            if (playerHealth <= 0) {
+              startChallenge(
+                challengeSide
+              );
+
+              return;
+            }
+          }
+        }
+      }
+
+      function completeChallenge() {
+        gameState.challenges[
+          challengeSide
+        ] = true;
+
+        gameState.challengesCompleted++;
+
+        gameState.scene = "game";
+
+        playerX = width / 2;
+        playerY = height / 2;
+
+        challengeSide = "";
+
+        // After the fourth challenge, every border
+        // remains open and the star goes back into
+        // the center room.
+        if (
+          gameState.challengesCompleted >= 4
+        ) {
+          gameState.allBordersUnlocked = true;
+          gameState.currentBorder = "";
+
+          moveStarInsideRoom();
+        }
+      }
+
+      function getChallengeControlRects() {
+        let buttonHeight = 58;
+        let gap = 10;
+
+        let totalWidth = min(
+          width - 30,
+          400
+        );
+
+        let buttonWidth =
+          (totalWidth - gap * 2) / 3;
+
+        let startX =
+          width / 2 -
+          totalWidth / 2;
+
+        let y =
+          height -
+          buttonHeight -
+          15;
+
+        return {
+          left: {
+            x: startX,
+            y: y,
+            w: buttonWidth,
+            h: buttonHeight
+          },
+
+          fire: {
+            x:
+              startX +
+              buttonWidth +
+              gap,
+
+            y: y,
+            w: buttonWidth,
+            h: buttonHeight
+          },
+
+          right: {
+            x:
+              startX +
+              (buttonWidth + gap) *
+                2,
+
+            y: y,
+            w: buttonWidth,
+            h: buttonHeight
+          }
+        };
+      }
+
+      function drawChallengeControls() {
+        let controls =
+          getChallengeControlRects();
+
+        drawControlButton(
+          controls.left,
+          "←"
+        );
+
+        drawControlButton(
+          controls.fire,
+          "FIRE"
+        );
+
+        drawControlButton(
+          controls.right,
+          "→"
+        );
+      }
+
+      function drawControlButton(
+        button,
+        label
+      ) {
+        fill(20);
+        stroke("lightblue");
+        strokeWeight(1);
+
+        rect(
+          button.x,
+          button.y,
+          button.w,
+          button.h,
+          6
+        );
+
+        noStroke();
+        fill("white");
+
+        textAlign(CENTER, CENTER);
+        textSize(16);
+
+        text(
+          label,
+          button.x +
+            button.w / 2,
+
+          button.y +
+            button.h / 2
+        );
+      }
+
+      function pointInsideRect(
+        x,
+        y,
+        rectangle
+      ) {
+        return (
+          x >= rectangle.x &&
+          x <=
+            rectangle.x +
+              rectangle.w &&
+
+          y >= rectangle.y &&
+          y <=
+            rectangle.y +
+              rectangle.h
+        );
+      }
+
+      // =====================================================
+      // GIVE-UP SCENE
+      // =====================================================
+
+      function drawGiveUpScene() {
+        let topColor =
+          color(30, 0, 0);
+
+        let bottomColor =
+          color(90, 0, 0);
+
+        for (
+          let y = 0;
+          y < height;
+          y++
+        ) {
+          let amount = map(
+            y,
+            0,
+            height,
+            0,
+            1
+          );
+
+          stroke(
+            lerpColor(
+              topColor,
+              bottomColor,
+              amount
+            )
+          );
+
+          line(0, y, width, y);
+        }
+
+        noStroke();
+        fill(255, 100, 100);
+
+        textAlign(CENTER, CENTER);
+        textSize(width < 600 ? 18 : 22);
+
+        text(
+          "You gave up.\n\nOR\n\nDid you simply realize the truth?",
+          width / 2,
+          height / 2
+        );
+
+        let red = map(
+          mouseX,
+          0,
+          width,
+          120,
+          255
+        );
+
+        fill(red, 0, 0, 180);
+        circle(mouseX, mouseY, 15);
+      }
+
+      // =====================================================
+      // CLICK AND TAP HANDLING
+      // =====================================================
+
+      function mousePressed() {
+        handlePress(mouseX, mouseY);
+      }
+
+      function touchStarted() {
+        if (touches.length > 0) {
+          handlePress(
+            touches[0].x,
+            touches[0].y
+          );
+        }
+
+        return false;
+      }
+
+      function handlePress(x, y) {
+        // Challenge controls and exit
+        if (
+          gameState.scene ===
+          "challenge"
+        ) {
+          let exitButton =
+            getChallengeExitButton();
+
+          if (
+            pointInsideRect(
+              x,
+              y,
+              exitButton
             )
           ) {
-            popup = "hint";
-          } else if (
-            insideButton(
-              width - 135,
-              height - 60,
-              110,
-              35
+            exitChallenge();
+            return;
+          }
+
+          let controls =
+            getChallengeControlRects();
+
+          if (
+            pointInsideRect(
+              x,
+              y,
+              controls.fire
             )
           ) {
-            popup = "giveUp";
+            shootPlayerBullet();
           }
 
           return;
         }
 
         if (
-          popup === "hint" &&
-          insideButton(
-            width / 2 - 70,
-            height / 2 + 75,
-            140,
-            40
-          )
+          gameState.scene !== "game"
         ) {
-          popup = "";
           return;
         }
 
+        // Hint popup
         if (
-          popup === "giveUp" &&
-          insideButton(
-            width / 2 - 165,
-            height / 2 + 75,
-            150,
-            40
-          )
+          gameState.popup === "hint"
         ) {
-          popup = "";
+          if (
+            pointInsideRect(
+              x,
+              y,
+              {
+                x:
+                  width / 2 -
+                  70,
+
+                y:
+                  height / 2 +
+                  75,
+
+                w: 140,
+                h: 42
+              }
+            )
+          ) {
+            gameState.popup = "";
+          }
+
           return;
         }
 
+        // Give-up confirmation popup
         if (
-          popup === "giveUp" &&
-          insideButton(
-            width / 2 + 15,
-            height / 2 + 75,
-            150,
-            40
+          gameState.popup === "giveUp"
+        ) {
+          let buttonWidth =
+            width < 600
+              ? 130
+              : 150;
+
+          let keepTryingButton = {
+            x:
+              width / 2 -
+              buttonWidth -
+              10,
+
+            y:
+              height / 2 +
+              75,
+
+            w: buttonWidth,
+            h: 42
+          };
+
+          let giveUpButton = {
+            x: width / 2 + 10,
+
+            y:
+              height / 2 +
+              75,
+
+            w: buttonWidth,
+            h: 42
+          };
+
+          if (
+            pointInsideRect(
+              x,
+              y,
+              keepTryingButton
+            )
+          ) {
+            gameState.popup = "";
+            return;
+          }
+
+          if (
+            pointInsideRect(
+              x,
+              y,
+              giveUpButton
+            )
+          ) {
+            gameState.popup = "";
+            gameState.gaveUp = true;
+
+            gameState.scene =
+              "giveUpScene";
+          }
+
+          return;
+        }
+
+        // Minus zoom button
+        if (
+          pointInsideRect(
+            x,
+            y,
+            {
+              x: 130,
+              y: 10,
+              w: 40,
+              h: 36
+            }
           )
         ) {
-          popup = "";
-          scene = "giveUpScene";
+          if (!gameState.zoomedOut) {
+            gameState.zoomPresses++;
+
+            if (
+              gameState.zoomPresses >= 3
+            ) {
+              gameState.zoomedOut = true;
+              gameState.currentBorder = "top";
+
+              playerX = width / 2;
+              playerY = height / 2;
+
+              moveStarToOuterBorder(
+                "top"
+              );
+            }
+          }
+
+          return;
+        }
+
+        let buttonWidth = 115;
+        let buttonHeight = 38;
+
+        let buttonX =
+          width -
+          buttonWidth -
+          20;
+
+        // Hint button
+        if (
+          pointInsideRect(
+            x,
+            y,
+            {
+              x: buttonX,
+              y: height - 110,
+              w: buttonWidth,
+              h: buttonHeight
+            }
+          )
+        ) {
+          gameState.hintsUsed++;
+          gameState.popup = "hint";
+          return;
+        }
+
+        // Give Up button
+        if (
+          pointInsideRect(
+            x,
+            y,
+            {
+              x: buttonX,
+              y: height - 60,
+              w: buttonWidth,
+              h: buttonHeight
+            }
+          )
+        ) {
+          gameState.popup = "giveUp";
+          return;
+        }
+
+        // Start the current border challenge
+        if (
+          gameState.zoomedOut &&
+          !gameState.allBordersUnlocked
+        ) {
+          let activeGate =
+            getGateRect(
+              gameState.currentBorder
+            );
+
+          if (
+            pointInsideRect(
+              x,
+              y,
+              activeGate
+            ) &&
+            !gameState.challenges[
+              gameState.currentBorder
+            ]
+          ) {
+            startChallenge(
+              gameState.currentBorder
+            );
+          }
         }
       }
 
       function windowResized() {
-        resizeCanvas(windowWidth, windowHeight);
+        resizeCanvas(
+          windowWidth,
+          windowHeight
+        );
+
+        playerX = width / 2;
+        playerY = height / 2;
+
+        if (
+          gameState.zoomedOut &&
+          !gameState.allBordersUnlocked
+        ) {
+          moveStarToOuterBorder(
+            gameState.currentBorder
+          );
+        } else {
+          moveStarInsideRoom();
+        }
       }
     </script>
   </body>
 </html>
-```
