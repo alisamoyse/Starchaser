@@ -18,10 +18,13 @@ const scenes = [
     subtitle: "\ncatch the star, save the universe"
   },
   {
-    subtitle: "* narrator script. *"
+    subtitle: "Eons ago, the Red Star was created\nby the Intergalactic Council as the\nGreat Guardian of the Universe."
   },
   {
-    subtitle: "* more narrator script. *"
+    subtitle: "The Red Star protected our worlds \ngainst The Voids, dark forces seeking\nto consume the universe.\n\nBut those days are gone,\nand the red star has been corrupted."
+  },
+  {
+    subtitle: "We need your help to get the star back.\nDo everything you can,\nthe universe depends on it.\nDon't give up, or they will win.\n\nReady?"
   }
 ];
 
